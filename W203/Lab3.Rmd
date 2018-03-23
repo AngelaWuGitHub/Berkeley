@@ -1,1 +1,32 @@
+---
+title: "Lab 3 (Bhuvnesh Sharma, Weixin Wu)"
+author: "Bhuvnesh Sharma, Weixin Wu"
+date: "March 22, 2018"
+output: pdf_document
+---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# EDA
+
+
+
+# Model Building 1
+
+
+
+# Model Building 2
+
+
+
+# Model Building 3
+
+
+
+# Model Display
+
+
+
+# Omitted Variables
