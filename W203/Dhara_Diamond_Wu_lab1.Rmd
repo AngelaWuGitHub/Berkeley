@@ -1,0 +1,529 @@
+---
+title: "Corruption and Parking Violations"
+author:
+- Aditya Dhara
+- Michael Diamond
+- Weixin Wu
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+We have been hired by the World Bank to study the effect of cultural norms and legal enforcement
+in controlling corruption by analyzing the parking behavior of United Nations officials in Manhattan. 
+We are interested in understanding the relationship between the unpaid parking violations of UN diplomats 
+and measures of corruption for each country, along with other country-sepcific factors, such as the total trade with United States.
+
+Further, we are interested in seeing what the residual effect, or relationship was betwen these variables, after 
+the NYC police department started enforcing the collection of fines on unpaid tickets in 2002.  Collectively, this
+information can give us insight into whether certain cultural norms about paying fines, outlive even a change in the
+level of enforcement around a set of rules.
+
+First we load the data
+
+```{r}
+load("Corrupt.Rdata")
+objects()
+```
+
+## Describe data
+We note that we have 364 observations and 28 variables.
+Out of 28 variables, 3 are categorical variables, 6 are binary variables, and the rest are continuous variables.
+
+```{r}
+nrow(FMcorrupt)
+str(FMcorrupt)
+```
+
+## Data Quality
+As shown in the summary below, there are NAs in every variable. 
+The target variable "violations" has 66 NAs, 
+and most other variables have either 42 NAs, 66 NAs, 68 NAs or 86 NAs. 
+Variable "gov_wage_gdp" has 180 NAs, which is about half of the observations.
+If we removed all the NAs in the data, we would lose more than half of the observations, 
+which would significantly impair our analysis.
+So we only remove the observations with missing targets (i.e. "violations") 
+and deal with other missings when analyzing individual variables.
+
+```{r}
+summary(FMcorrupt)
+```
+
+for space saving, we convert any character fields into factors
+```{r}
+FMcorrupt$wbcode = factor(FMcorrupt$wbcode)
+FMcorrupt$prepost = factor(FMcorrupt$prepost, levels=c("pre", "pos"))
+FMcorrupt$country = factor(FMcorrupt$country)
+```
+
+## Data preparation
+We need to remove the NAs in the Target Variable:
+```{r}
+FMCorrupt_noNAVio = FMcorrupt[complete.cases(FMcorrupt$violations),]
+summary(FMCorrupt_noNAVio)
+```
+
+After removing NAs, there are only a handful of observations with multiple missing values.
+
+We also notice variable "wb_code" includes not only country codes but also region codes. These region codes
+only have limited aggregate data in some variables, and do not represent the "country" level detailed observations
+we are interested in analyzing. For example, "WLD" means world. As another example, "ECA" means Europe & Central Asia.
+Since our goal is to analyze the relationship between parking violations and corruption at the country level,
+we should remove the observations that represent regions.
+We have confirmed that removing NAs in the target variable coincidentally removes those observations.
+
+# Univariate Analysis of Key Variables
+
+## Key variable 1 (Target): violations
+We assume violations refers to the average unpaid New York City parking violations per year.
+Since each country has different number of diplomatic cars, in order to get a fair comparison between countries,
+we calculate violations per car and use it as our target variable.
+```{r}
+FMCorrupt_noNAVioCar = FMCorrupt_noNAVio[complete.cases(FMCorrupt_noNAVio$cars_total),]
+FMCorrupt_noNAVioCar$violationsPerCar = FMCorrupt_noNAVioCar$violations / FMCorrupt_noNAVioCar$cars_total
+```
+
+Violations per car has a max of 176.22, a min of 0, and a mean of 11.52.
+```{r}
+summary(FMCorrupt_noNAVioCar$violationsPerCar)
+```
+
+According to the histogram below, violations per car is highly skewed to the right.
+We should consider taking the log of violations per car.  Note: because violations per car can be zero, we add a small number (i.e. 0.001) to the violations per car before taking the log.
+```{r}
+hist(FMCorrupt_noNAVioCar$violationsPerCar)
+FMCorrupt_noNAVioCar$log_violationsPerCar = log(FMCorrupt_noNAVioCar$violationsPerCar + 0.001)
+```
+
+The log of violations per car appears to be a mixture of two distributions.
+```{r}
+hist(FMCorrupt_noNAVioCar$log_violationsPerCar)
+```
+
+We notice that violations per car significantly reduced after 2002. 
+The diplomatic behavior was constrained by the harsher legal penalities of unpaid tickets post 2002.
+```{r}
+par(mfrow=c(1,2))
+hist(FMCorrupt_noNAVioCar$log_violationsPerCar[FMCorrupt_noNAVioCar$prepost=="pre"], main="Violations per Car (Pre-2002)", xlab=NULL)
+hist(FMCorrupt_noNAVioCar$log_violationsPerCar[FMCorrupt_noNAVioCar$prepost=="pos"], main="Violations per Car (Post-2002)", xlab=NULL)
+```
+
+We can overlap the two histograms to visualize the differences more easily.
+```{r}
+library(ggplot2)
+ggplot(FMCorrupt_noNAVioCar,aes(x=log_violationsPerCar,group=prepost,fill=prepost))+
+  geom_histogram(position="identity",alpha=0.5,binwidth=0.5)+theme_bw()
+```
+
+## Key variable 2: corruption
+Corruption index ranges from -2.58 to 1.435.
+```{r}
+summary(FMCorrupt_noNAVioCar$corruption)
+```
+
+According to the histogram below, corruption index is skewed to the left.
+```{r}
+par(mfrow=c(1,1))
+hist(FMCorrupt_noNAVioCar$corruption)
+```
+
+## Key variable 3: trade
+Variable "trade" has a very wide range.
+The lowest amount of trade with U.S.A was only 55.7 thousands, while the highest amount trade with U.S.A was 329 billion.
+```{r}
+summary(FMCorrupt_noNAVioCar$trade)
+```
+According to the histogram below, trade is highly skewed to the right.
+We should consider taking the log of trade.
+```{r}
+par(mfrow=c(1,1))
+hist(FMCorrupt_noNAVioCar$trade)
+FMCorrupt_noNAVioCar$log_trade = log(FMCorrupt_noNAVioCar$trade)
+```
+The log of trade appears to be normally distributed.
+```{r}
+hist(FMCorrupt_noNAVioCar$log_trade)
+```
+
+## Key variable 4: region
+Variable "region" takes values from 1 to 7, which represents different regions.
+After comparing against other dummy region variables (i.e., r_africa, r_middleeast, etc.) and country abbreviations (i.e., country),
+we conclude the definition of each region code as follows and creates a new column called "regionName".
+1. North America
+2. South America
+3. Europe
+4. Asia
+5. Oceania
+6. Africa
+7. Middle East
+```{r}
+FMCorrupt_noNAVioCar$regionName = factor(FMCorrupt_noNAVioCar$region,
+                                         labels=c(
+                                           "North America",
+                                           "South America",
+                                           "Europe",
+                                           "Asia",
+                                           "Oceania",
+                                           "Africa",
+                                           "Middle East"))
+```
+
+Most countries in the dataset come from Africa, Europe, and Asia.
+```{r}
+library(ggplot2)
+ggplot(data.frame(FMCorrupt_noNAVioCar),aes(x=regionName)) + 
+  geom_bar(fill="blue") + 
+  geom_text(stat='count',aes(label=..count..),vjust=-.75) + 
+  ggtitle("Count of Countries by Region")
+```
+
+*Please note the countries are double-counted in this chart, because both pre- and post- are included.*
+
+# Analysis of Key Relationships
+
+For the purposes of this section, we have identified the
+target variable as log_violationsPerCar, calculated above.
+We will refer to this as the "Target Variable" for efficiency
+and ease of presentation.
+
+## Creating and pre- and post- Rule Change version of the dataset
+Since we are interested in looking at the relationship between
+the recorded variables both before the 2002 rule change, and after
+the rule change, we need to create a pre- and post- version
+of the core data set.
+
+```{r}
+FMcorrupt_pre <- subset(FMCorrupt_noNAVioCar, prepost=="pre")
+FMcorrupt_post <- subset(FMCorrupt_noNAVioCar, prepost=="pos")
+```
+
+## Building a correlation matrix of key variables
+We are interested in analyzing the correlations between
+the core variables in this data set, and wanted to get an initial broad view of these relationships.
+Constructing the correlation tables, required some data clean-up to remove non-integer variables, like country name etc, and 
+some unique variables with many NAs, e.g., gov_wage_gdp, as mentioned above.
+
+```{r}
+FMcorrupt_pre_clean = subset(FMcorrupt_pre, select = 
+                               -c(wbcode, prepost,country, regionName, gov_wage_gdp))
+FMcorrupt_post_clean = subset(FMcorrupt_post, select = 
+                                -c(wbcode, prepost,country, regionName, gov_wage_gdp))
+```
+
+The resulting correlation table, can be inspected in the View mode 
+which allowed us to quickly view and sort the variables with respect 
+to their correlation with log_violationsPerCar, which is our target variable.
+
+First we take a look at the correlations prior to the rule change in 2002:
+
+```{r}
+fm_data_pre <- FMcorrupt_pre_clean[,1:(length(FMcorrupt_pre_clean))]
+cor_table_pre <- (round((cor(fm_data_pre, use="complete.obs")),3))
+View(cor_table_pre)
+```
+
+Then we take a look at the correlations after the rule change.
+```{r}
+fm_data_post <- FMcorrupt_post_clean[,1:(length(FMcorrupt_post_clean))]
+cor_table_post <- (round((cor(fm_data_post, use="complete.obs")),3))
+View(cor_table_post)
+```
+
+## Relationships between key variables that could be excluded.
+There are a number of variables which seem to be auto-correlated in the sense
+that we see a strong correlation with the target variable, but on face value it's clear that these
+variables are likely to be highly correlated, without providing us much
+more insight about the drivers of violations and/or the thesis about corruption.
+For example, `log_violations_per_Car` is strongly correlated with `violations_per_Car`, and 
+`violations`. In addition the Target Variable is strongly correlated with `fines`.  Unless the absolute 
+dollar amount of each fine varies significantly between violations - one would expect there to be a fairly linear relationship between the amount of violations (ie volume), and the dollar amount of the fines associated with these violations.
+
+## Variables of interest
+Emerging from a review of the correlation tables we can focus
+then on four variables whose relationship with the target variable
+seemed to suggest some insight:  
+1. `corruption`
+2. `region`: specifically comparing `r_africa` and `r_europe`
+3. `trade`: using `log_trade`
+4. `gdppcus1998`
+
+
+## Correlations between Target Variable and selected variables:
+
+  |  Variable   |  Pre         |  Post        |
+  |-------------|--------------|-------------:|
+  |gdppcus1998  |        (0.50)|        (0.19)|
+  |log_trade    |        (0.31)|        (0.13)|
+  |r_europe     |        (0.22)|        (0.11)|
+  |r_africa     |         0.27 |         0.25 |
+  |corruption   |         0.44 |         0.20 |
+
+
+#3 Key relationship 1: Target Variable and corruption
+We saw a close relationship between these two variables,
+with corelation of 0.45 pre- rule change, and 0.23 post- rule change.
+[Note the method of producing the correlation table, and using direct 
+individual correlations, produces slightly different results; but directionally similar and close in absolute terms. We believe that this is related to how NAs and complete observations are handled].
+
+```{r}
+cor(FMcorrupt_pre$log_violationsPerCar, FMcorrupt_pre_clean$corruption, use = "complete.obs")
+cor(FMcorrupt_post$log_violationsPerCar, FMcorrupt_post_clean$corruption, use = "complete.obs")
+```
+
+Plotting the two variables on a scatterplot shows the relationship between `violations` and `corruption`.
+With the additon of color-coding the individual countries by region, 
+we see that there are a group of countries, tagged in
+the Africa region with high levels of corruption
+and high levels of violations.
+
+```{r}
+plot(FMcorrupt_pre$corruption,FMcorrupt_pre$log_violationsPerCar, 
+     main="Relationship between Target Variable\nand Corruption.  Pre Rule Change",
+     xlab="Corruption", ylab="Target Variable",
+     col=FMcorrupt_pre$regionName)
+abline(lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$corruption))
+legend (x = 0.6, y = -1.1, legend = levels(FMcorrupt_pre$regionName), col = c(1:7), pch = 16)
+```
+
+While there appears to be a clear relationship, the R^2 on the
+linear regression line is not particularly strong, at 0.21
+suggesting other models may fit better.
+
+```{r}
+fit_pre <- lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$corruption)
+rSquared_pre <- summary(fit_pre)$r.squared
+rSquared_pre
+```
+
+The corruption index data does not change in the pre- and post- data sets.
+A similar scatterplot view of the relationship between violations and corruption, 
+after the rule change, suggests that 
+a number of the countries, with higher corruption scores, still
+continued to generate large numbers of unpaid violations, even after the 
+rules were enforced by NYC Police Dept.
+
+```{r}
+plot(FMcorrupt_post$corruption,FMcorrupt_post$log_violationsPerCar, 
+     main="Relationship between Target Variable\nand Corruption.  Post Rule Change",
+     xlab="Corruption", ylab="Target Variable",
+     col=FMcorrupt_post$regionName)
+abline(lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$corruption))
+legend (x = 0.5, y = -3.0, legend = levels(FMcorrupt_post$regionName), col = c(1:7), pch = 16)
+```
+
+```{r}
+((lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$corruption)))
+fit_post <- lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_pre$corruption)
+rSquared_post <- summary(fit_post)$r.squared
+rSquared_post
+```
+
+This relationship between the levels of corruption 
+in a country, and the number of unpaid violations 
+associated with the country's mission in NYC
+suggests that countries
+where the rule of law, domestically, is less established, are more
+apt to hold parking violations that go unpaid, even after stronger
+enforcement is in place.
+
+There is a strong relationship between
+the Target Variable and corruption before the rule change
+was implemented, and we observe that some countries changed
+their behavior when the enforcement of the law became
+active, while others continued to violate.  This
+suggests almost a threshold, or boundary, defining a group
+of countries where the focus on law-abiding activity is directly mediated
+by how strict the enforcement of the rules are.  There are a set of countries that will break the law
+until the point in time when the law is strictly enforced, and then their behavior
+changes; and another group of contries who continue to break the law,
+leaving unpaid violations, even after the enforcement is in place.
+
+## Key relationship 2: Target Variable vs GDP per Capita in 1998 US$
+
+We saw a close negative relationship between the Target Variable and the 
+level of GDP per Person (expressed in 1998 US Dollars) - ie the gdppcus1998 variable.
+
+```{r}
+cor(FMcorrupt_pre$log_violationsPerCar, FMcorrupt_pre_clean$gdppcus1998, use = "complete.obs")
+```
+
+Plotting them on a scatterplot shows this relationship,
+suggesting that countries with higher levels of wealth -  
+expressed in terms of GDP per person - are associated with 
+lower amounts for unpaid violations.
+
+```{r}
+plot(FMcorrupt_pre$gdppcus1998,FMcorrupt_pre$log_violationsPerCar, 
+     main="Relationship between Target Variable\nand GDP per person (1998 US$).  Pre Rule Change",
+     sub="Target Variable = Log of Violations per Car",
+     xlab="GDP per person (1998 US$)", ylab="Target Variable",
+     col=FMcorrupt_pre$regionName)
+abline(lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$gdppcus1998))
+legend (x = 5000, y = -2.5, legend = levels(FMcorrupt_pre$regionName), col = c(1:7), pch = 16)
+```
+
+The corollary would suggest that the relatively "poorer" countries 
+have more violations left unpaid, and we can see this to be true
+even after the rule change in 2002. The scatterplot shows that 
+there a number of countries, with lower GDP per Person levels, 
+that still generate large numbers of unpaid violations.
+
+```{r}
+plot(FMcorrupt_post$gdppcus1998,FMcorrupt_post$log_violationsPerCar, 
+     main="Relationship between Target Variable\nand GDP per person (1998 US$).  Post Rule Change",
+     sub="Target Variable = Log of Violations per Car",
+     xlab="GDP per person (1998 US$)", ylab="Target Variable",
+     col=FMcorrupt_post$regionName)
+abline(lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$gdppcus1998))
+legend (x = 5000, y = -3.0, legend = levels(FMcorrupt_pre$regionName), col = c(1:7), pch = 16)
+```
+
+This relationship may be just an artefact of low GDP per Person countries
+having less absolute funds available to support their mission (including
+paying fines), or it may indicate some relationship between low GDP per Person
+countries and their attitudes more generally towards the seriousness
+of parking violations, or to the rule of law more broadly.
+
+## Key relationship 3: Target Variable and Region
+The absolute number of violations, even on "per-car" adjusted basis, has a pretty strong 
+profile showing differences across the different regions, with the region of Africa showing
+both the highest absolute amounts pre- and post- the rule change. 
+
+```{r}
+ggplot(FMCorrupt_noNAVioCar, aes(factor(regionName), violationsPerCar, fill = prepost)) + 
+  geom_bar(stat="identity", position = "dodge") + 
+  scale_fill_brewer(palette = "Set1") +
+  ggtitle("Average Violations Per Car\nby Country in each Region")
+```
+
+While all of the regions
+showed strong absolute declines in the level of violations per car, post- rule
+change, the African-region countries continued to show higher relative levels.  This suggests that
+the level of unpaid violations may be related in some more direct way with the country
+of origin for the missiion, and that countries within Africa particularly, have
+an orientation not to pay the parking violations, even after enforcement
+
+## Key relationship 4: Target Variable and Trade
+
+We saw a close negative relationship between the Target Variable and the 
+level of Trade for each individual country with the US.  (Using the log of Trade
+given the high skew in the absolute level of Trade between the US and the countries
+in this data set).  Prior to the rule change the correlation was -0.31 and after the rule change
+the correlation was -0.15
+
+```{r}
+cor(FMcorrupt_pre$log_violationsPerCar, FMcorrupt_pre$log_trade, use = "complete.obs")
+cor(FMcorrupt_post$log_violationsPerCar, FMcorrupt_post$log_trade, use = "complete.obs")
+```
+
+Plotting them on a scatterplot shows this relationship,
+suggesting that countries with higher levels of trade with the US tend to have lower amounts of unpaid violations.  However the
+relationship is not a very strong one, with lots of dispersion
+around the regression line.  
+
+The relationship may be more do do with the stage of development
+and absolute wealth of the country, than some sort of relationship
+that suggest countries with significant trade with US have a "stake" or "commitment" to the US, and are thus likely to 
+have fewer unpaid fines.
+
+```{r}
+plot(FMcorrupt_pre$log_trade,FMcorrupt_pre$log_violationsPerCar, 
+     main="Relationship between Target Variable and Trade.  Pre Rule Change",
+     xlab="Log (Trade) ", ylab="Target Variable",
+     col=FMcorrupt_pre$regionName)
+abline(lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$log_trade))
+legend (x = 13, y = -1, legend = levels(FMcorrupt_pre$regionName), col = c(1:7), pch = 16)
+```
+
+```{r}
+((lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$log_trade)))
+fit_pre <- lm(FMcorrupt_pre$log_violationsPerCar ~ FMcorrupt_pre$log_trade)
+rSquared_pre <- summary(fit_pre)$r.squared
+rSquared_pre
+```
+
+```{r}
+plot(FMcorrupt_post$log_trade,FMcorrupt_post$log_violationsPerCar, 
+     main="Relationship between Target Variable and Trade.\nPost Rule Change",
+     xlab="Log (Trade) ", ylab="Target Variable",
+     col=FMcorrupt_post$regionName)
+abline(lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$log_trade))
+legend (x = 13, y = -3, legend = levels(FMcorrupt_post$regionName), col = c(1:7), pch = 16)
+```
+
+```{r}
+((lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$log_trade)))
+fit_post <- lm(FMcorrupt_post$log_violationsPerCar ~ FMcorrupt_post$log_trade)
+rSquared_post <- summary(fit_post)$r.squared
+rSquared_post
+```
+
+
+# Analysis of Secondary Effects
+
+In the pre-2002 dataframe, there were two columns that had a correlation of magnitude greater than 0.2
+with both "corruption" and "log_violationsPerCar" - "trade" and "gdppcus1998".
+
+```{r}
+FMcorrupt_cols = c("log_trade", "gdppcus1998")
+cor(FMcorrupt_pre[FMcorrupt_cols], y = FMcorrupt_pre[c("corruption", "log_violationsPerCar")],
+    use = "complete.obs")
+```
+
+This correlation between the two columns and log_violationsPerCar does drop in the post-2002 data.
+This is expected due to the general drop in violations after 2002 due to the added legal penalties
+```{r}
+cor(FMcorrupt_post[FMcorrupt_cols], y = FMcorrupt_post[c("corruption", "log_violationsPerCar")],
+    use = "complete.obs")
+```
+
+This is also clearly visible in the lines of best fit in a scatterplotMatrix with the four columns in the pre-2002 dataset
+```{r}
+library(car)
+scatterplotMatrix(~ log_trade + gdppcus1998 + corruption + log_violationsPerCar,
+                  data = FMcorrupt_pre,
+                  diagonal="histogram")
+```
+
+Note the smaller slopes in the lines of fit for log_violationsPerCar in the post-2002 dataset
+```{r}
+scatterplotMatrix(~ log_trade + gdppcus1998 + corruption + log_violationsPerCar,
+                  data = FMcorrupt_post,
+                  diagonal="histogram")
+```
+
+These are possible confounding variables because they could be the underlying cause for
+both corruption and violations. `gdppcus1998` is an indicator of the modernization of a country
+and `log_trade` with the US is an indication of a country's globalization. Such a country might have
+a government that isn't accustomed to the strict laws and repercussions towards the governing
+class. Such a cultural environment could be the root cause of both these metrics.
+
+In addition to the above, another confounding variable could be the region a country belongs
+in. The average corruption by region varies, as can be seen in the graph below:
+
+```{r}
+FMcorrupt_by_region = by(FMCorrupt_noNAVioCar$corruption, FMCorrupt_noNAVioCar$regionName, mean, na.rm = T)
+plot(sort(unique(FMCorrupt_noNAVioCar$regionName)), FMcorrupt_by_region)
+```
+
+Such differences in the corruption by region suggest that countries closer to other corrupt
+countries might also tend to be corrupt. This could distort the relationship between corruption
+and parking violations, and any further inference might benefit by being split by region.
+
+# Conclusion
+
+Prior to the 2002 rule change, there is clear evidence that there is a relationship between 
+the level of unpaid parking violations versus the level of corruption in the countries under observation. 
+The higher the level of the corruption index, the more likely that country is to have unpaid parking violations
+even adjusting for the number of cars associated with the mission.
+
+Further the region of origin provides an incremental insight to the level of violations with countries
+coded in the African Region showing higher levels of violations, for given levels of corruption.  This
+relationship is noticeable, post the 2002 rule change, where the salutary effect of enforcing fines
+is not as noticeable with countries from the African region.
+
+In addition, other cultural factors may confound the relationship between corruption and violations.  The level of modernization and globalization may influence the cultural norms around the likelihood that parking tickets will get paid.   Further, more subtle social and cultural attitudes, not necessarily markers of corruption, could influence how likely it is for any individual country to have outstanding unpaid violations -- for example, attitudes toward authority, or the time horizon in which it is considered fair to pay fines.
